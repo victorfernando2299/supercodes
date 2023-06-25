@@ -1,0 +1,271 @@
+Agenda.kt
+
+package com.sd.laborator
+
+import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.runApplication
+
+@SpringBootApplication
+class PhoneAgenda
+
+fun main(args: Array<String>) {
+    runApplication<PhoneAgenda>(*args)
+}
+
+
+
+
+
+AgendaController.kt
+
+package com.sd.laborator.controllers
+import com.sd.laborator.interfaces.*
+import com.sd.laborator.pojo.Person
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.http.HttpStatus
+import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.*
+import java.time.LocalDateTime
+
+@RestController
+class AgendaController {
+    @Autowired
+    private lateinit var agendaService: AgendaService
+
+    @Autowired
+    private lateinit var cacheAgendaService: cacheAgendaService
+
+    @RequestMapping(value = ["/person"], method = [RequestMethod.POST])
+    fun createPerson(@RequestBody person: Person): ResponseEntity<Unit> {
+        agendaService.createPerson(person)
+        cacheAgendaService.createPerson(person)
+        return ResponseEntity(Unit, HttpStatus.CREATED)
+    }
+
+    @RequestMapping(value = ["/person/{id}"], method = [RequestMethod.GET])
+    fun getPerson(@PathVariable id: Int): ResponseEntity<Person?> {
+        var person: Person? = cacheAgendaService.getPerson(id)
+
+        var status = if (person == null) { HttpStatus.NOT_FOUND } else { HttpStatus.OK }
+
+        if(status == HttpStatus.OK) {
+            println("Cache called")
+            return ResponseEntity(person, status)
+        }
+        else {
+            person = agendaService.getPerson(id)
+            status = if (person == null) { HttpStatus.NOT_FOUND } else { HttpStatus.OK }
+
+            //daca s-a gasit in storage, il punem si in cache, pentru a-l putea accesa rapid
+            if(status == HttpStatus.OK) {
+                println("Not found in cache, but creating new record.")
+                person!!.date_created = LocalDateTime.now() // il luam din storage si trebuie sa ii schimbam data.
+                cacheAgendaService.createPerson(person)
+            }
+            return ResponseEntity(person, status)
+        }
+    }
+
+    @RequestMapping(value = ["/person/{id}"], method = [RequestMethod.PUT])
+    fun updatePerson(@PathVariable id: Int, @RequestBody person: Person): ResponseEntity<Unit> {
+        agendaService.getPerson(id)?.let {
+            agendaService.updatePerson(it.id, person)
+            cacheAgendaService.updatePerson(it.id, person)
+            return ResponseEntity(Unit, HttpStatus.ACCEPTED)
+        } ?: return ResponseEntity(Unit, HttpStatus.NOT_FOUND)
+    }
+
+    @RequestMapping(value = ["/person/{id}"], method = [RequestMethod.DELETE])
+    fun deletePerson(@PathVariable id: Int): ResponseEntity<Unit> {
+        if (agendaService.getPerson(id) != null) {
+            agendaService.deletePerson(id)
+            cacheAgendaService.deletePerson(id)
+            return ResponseEntity(Unit, HttpStatus.OK)
+        } else {
+            return ResponseEntity(Unit, HttpStatus.NOT_FOUND)
+        }
+    }
+
+    @RequestMapping(value = ["/agenda"], method = [RequestMethod.GET])
+    fun search(@RequestParam(required = false, name = "lastName", defaultValue = "") lastName: String,
+                    @RequestParam(required = false, name = "firstName", defaultValue = "") firstName: String,
+                     @RequestParam(required = false, name = "telephone", defaultValue = "") telephoneNumber: String):
+            ResponseEntity<List<Person>> {
+        val personList = agendaService.searchAgenda(lastName, firstName, telephoneNumber)
+        var httpStatus = HttpStatus.OK
+        if (personList.isEmpty()) {
+            httpStatus = HttpStatus.NO_CONTENT
+        }
+        return ResponseEntity(personList, httpStatus)
+    }
+}
+
+
+
+
+
+
+AgendaService.kt
+
+package com.sd.laborator.interfaces
+
+import com.sd.laborator.pojo.Person
+
+interface AgendaService {
+    fun getPerson(id: Int) : Person?
+    fun createPerson(person: Person)
+    fun deletePerson(id: Int)
+    fun updatePerson(id: Int, person: Person)
+    fun searchAgenda(lastNameFilter: String, firstNameFilter: String, telephoneNumberFilter: String): List<Person>
+}
+
+
+
+
+
+cacheAgendaService.kt
+
+package com.sd.laborator.interfaces
+
+import com.sd.laborator.pojo.Person
+
+interface cacheAgendaService {
+    fun getPerson(id: Int) : Person?
+    fun createPerson(person: Person)
+    fun deletePerson(id: Int)
+    fun updatePerson(id: Int, person: Person)
+}
+
+
+
+
+
+
+
+person.kt
+
+package com.sd.laborator.pojo
+
+import java.sql.Time
+import java.time.LocalDateTime
+
+data class Person(
+    var id: Int = 0,
+    var lastName: String = "",
+    var firstName: String = "",
+    var telephoneNumber: String = "",
+    var date_created: LocalDateTime = LocalDateTime.now()
+)
+
+
+
+
+
+pom.xml
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.sd.laborator</groupId>
+    <artifactId>PhoneAgenda</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>com.sd.laborator PhoneAgenda</name>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.1.9.RELEASE</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <kotlin.version>1.3.61</kotlin.version>
+        <kotlin.code.style>official</kotlin.code.style>
+        <junit.version>4.12</junit.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-stdlib</artifactId>
+            <version>${kotlin.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-test-junit</artifactId>
+            <version>${kotlin.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-reflect</artifactId>
+            <version>${kotlin.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <version>${project.parent.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <sourceDirectory>src/main/kotlin</sourceDirectory>
+        <testSourceDirectory>src/test/kotlin</testSourceDirectory>
+
+        <plugins>
+            <plugin>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-maven-plugin</artifactId>
+                <version>${kotlin.version}</version>
+                <executions>
+                    <execution>
+                        <id>compile</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <compilerPlugins>
+                                <plugin>spring</plugin>
+                            </compilerPlugins>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>test-compile</id>
+                        <phase>test-compile</phase>
+                        <goals>
+                            <goal>test-compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.jetbrains.kotlin</groupId>
+                        <artifactId>kotlin-maven-allopen</artifactId>
+                        <version>${kotlin.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
